@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  # ... (Tus servicios actuales de MySQL acá arriba)
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: mi_rabbitmq
+    ports:
+      - "5672:5672" # Puerto interno por donde viajan los mensajes en el código
+      - "15672:15672" # Puerto de la interfaz web de administración
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+volumes:
+  rabbitmq_data:
