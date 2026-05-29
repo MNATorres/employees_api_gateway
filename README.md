@@ -4,128 +4,230 @@
   <img src="https://img.shields.io/badge/node.js-v20.x-339933?style=for-the-badge&logo=nodedotjs&logoColor=white" alt="Node.js version" />
   <img src="https://img.shields.io/badge/express-v5.x-000000?style=for-the-badge&logo=express&logoColor=white" alt="Express version" />
   <img src="https://img.shields.io/badge/typescript-v6.x-3178C6?style=for-the-badge&logo=typescript&logoColor=white" alt="TypeScript" />
-  <img src="https://img.shields.io/badge/license-ISC-blue?style=for-the-badge" alt="License" />
+  <img src="https://img.shields.io/badge/docker-v20.x-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker" />
+  <img src="https://img.shields.io/badge/rabbitmq-v3.x-FF6600?style=for-the-badge&logo=rabbitmq&logoColor=white" alt="RabbitMQ" />
 </p>
 
 ---
 
-## 📝 Descripción
+## 📝 Description
 
-Este proyecto es el **API Gateway** centralizado para una arquitectura de microservicios de práctica (`microservicio-practice`). Su principal objetivo es actuar como el punto de entrada único para las aplicaciones clientes, abstrayendo la complejidad de red y redirigiendo las peticiones de manera eficiente hacia los microservicios correspondientes.
+This project serves as the centralized **API Gateway** for a practice microservices architecture (`microservicio_practice`). Its primary goal is to act as a single entry point for client applications, abstracting the network complexity and routing HTTP requests efficiently to their corresponding backend microservices.
 
-Está construido utilizando **Express**, **TypeScript** y **http-proxy-middleware**, asegurando robustez, tipado estático fuerte y un excelente rendimiento de enrutamiento.
+It is built using **Express 5**, **TypeScript 6**, and **http-proxy-middleware**, ensuring strong static typing, robustness, and high-performance routing.
 
 ---
 
-## 🏗️ Arquitectura del Sistema
+## 🔗 Connected Repositories
 
-El API Gateway unifica el acceso a los distintos microservicios distribuidos:
+This project belongs to a multi-repository microservices ecosystem. Ensure you have all repositories cloned for full integration:
+
+*   **API Gateway (This repo):** [employees_api_gateway](https://github.com/MNATorres/employees_api_gateway.git)
+*   **Departments Microservice:** [departments_ms](https://github.com/MNATorres/departments_ms.git)
+*   **Employees Microservice:** [typescript-exercises (employeesms)](https://github.com/MNATorres/typescript-exercises.git)
+
+---
+
+## 🏗️ System Architecture & Message Flow
+
+The API Gateway acts as the HTTP entry point, while **RabbitMQ** serves as the asynchronous message broker that keeps microservice databases synchronized under an eventual consistency model:
 
 ```mermaid
 graph TD
-    Client[📱 Aplicación Cliente / Postman] -->|Petición HTTP| GW[🔀 API Gateway: Puerto 8081]
+    Client[📱 Client App / Postman] -->|HTTP Request| GW[🔀 API Gateway: Port 8081]
     
-    GW -->|/api/employees/*| MS_Emp[👥 Microservicio Empleados: Puerto 3000]
-    GW -->|/api/departments/*| MS_Dept[🏢 Microservicio Departamentos: Puerto 3001]
-    GW -->|/gateway-health| Diagnostic[🔍 Diagnóstico del Gateway]
+    GW -->|/api/employees/*| MS_Emp[👥 Employees MS: Port 3000]
+    GW -->|/api/departments/*| MS_Dept[🏢 Departments MS: Port 3001]
     
-    style GW fill:#1f6feb,stroke:#58a6ff,stroke-width:2px,color:#ffffff
-    style MS_Emp fill:#238636,stroke:#2ea043,stroke-width:1px,color:#ffffff
-    style MS_Dept fill:#8957e5,stroke:#a371f7,stroke-width:1px,color:#ffffff
-    style Client fill:#d1242f,stroke:#f85149,stroke-width:1px,color:#ffffff
+    %% Asynchronous communication via RabbitMQ
+    MS_Dept -->|1. Publish: DEPARTMENT_CREATED| RMQ[🐇 RabbitMQ Broker: Port 5672]
+    RMQ -->|2. Consume Event| MS_Emp
+    
+    classDef gateway fill:#1f6feb,stroke:#58a6ff,stroke-width:2px,color:#ffffff;
+    classDef service fill:#238636,stroke:#2ea043,stroke-width:1px,color:#ffffff;
+    classDef broker fill:#d2691e,stroke:#ff8c00,stroke-width:2px,color:#ffffff;
+    classDef client fill:#d1242f,stroke:#f85149,stroke-width:1px,color:#ffffff;
+    
+    class GW gateway;
+    class MS_Emp,MS_Dept service;
+    class RMQ broker;
+    class Client client;
 ```
 
 ---
 
-## ✨ Características Principales
+## ✨ Features
 
-*   **Enrutamiento Reverso Automático:** Proxy dinámico hacia microservicios backend sin exponer sus puertos directamente al cliente.
-*   **Preparado para TypeScript:** Tipado de alto nivel y configuración moderna lista para producción.
-*   **Recarga Rápida en Desarrollo:** Ejecución inmediata con `tsx` para un flujo de desarrollo ágil y sin esperas.
-*   **Diagnóstico de Salud (Healthcheck):** Endpoint `/gateway-health` expuesto para monitorizar el estado de disponibilidad del Gateway.
-*   **Preservación de Payload:** Configuración cuidadosa que evita el parseo global del body en el gateway, previniendo fallos en peticiones `POST` / `PUT` hacia los microservicios.
+*   **Reverse Proxy Routing:** Transparently forwards requests to backend services without exposing their ports to the external network.
+*   **No Global Body Parsing:** Avoids global `express.json()` parser middleware to prevent request stream corruption, allowing target microservices to receive the payloads directly.
+*   **Infrastructure Hosting:** Houses the central dockerized **RabbitMQ** message broker configuration.
+*   **TypeScript Ready:** Compiles with modern `tsconfig` configurations and runs in development with `tsx` hot-reloading.
 
 ---
 
-## 🚀 Comenzando
+## 🐇 RabbitMQ Deep Dive & Pub/Sub Mechanism
 
-### Requisitos Previos
+In this distributed system, microservices need to share certain data while remaining loose-coupled. Instead of querying each other synchronously via HTTP, they use **RabbitMQ** to publish and subscribe to events.
 
-*   [Node.js](https://nodejs.org/) (Versión 18 o superior recomendada)
-*   [npm](https://www.npmjs.com/) (Gestor de paquetes)
+### How it Works in Our Architecture:
+1.  **Publishing Events (Publisher - Departments MS):**
+    When a user creates a new department by sending a `POST` request to `http://localhost:8081/api/departments`, the **Departments Microservice** writes it to its database. Upon success, it publishes a `DEPARTMENT_CREATED` event containing the department ID (`dept_no`) and name (`dept_name`) to RabbitMQ.
+2.  **Message Queueing (Broker - RabbitMQ):**
+    RabbitMQ receives the message and stores it securely inside a durable queue named `departments_events`. The queue is marked as `durable: true`, and messages are `persistent: true`, meaning they survive broker crashes or restarts.
+3.  **Consuming Events (Subscriber - Employees MS):**
+    The **Employees Microservice** runs a background listener subscribed to the `departments_events` queue. Once RabbitMQ delivers the message, the Employees service:
+    *   Inserts or updates the department record in its local `departments_cache` SQL table.
+    *   Sends a message acknowledgement (`ack`) back to RabbitMQ.
+    *   If any database error occurs during caching, it skips sending the `ack` so the message is kept safe in the queue to be retried later.
 
-### Instalación
+### Architecture Benefits:
+*   **Loose Coupling:** The Departments Microservice does not need to know about the Employees Microservice's database layout, server address, or internal APIs.
+*   **High Resilience:** If the Employees Microservice goes offline, the Departments Microservice can still create departments normally. The events will simply pile up in RabbitMQ and will be consumed immediately once the Employees Microservice returns online.
+*   **Eventual Consistency:** Databases remain synchronized asynchronously in the background.
 
-1.  Clona el repositorio o navega al directorio del proyecto:
+---
+
+## 🚀 Local Testing & Running the Ecosystem
+
+To test the microservices flow locally, **all three repositories and their respective databases/brokers must be running concurrently.**
+
+### Step-by-Step Setup:
+
+#### 1. Clone & Organize Directories
+Clone all three repositories into the same parent folder:
+```bash
+git clone https://github.com/MNATorres/employees_api_gateway.git
+git clone https://github.com/MNATorres/departments_ms.git
+git clone https://github.com/MNATorres/typescript-exercises.git
+```
+
+#### 2. Spin up Docker Containers
+You must run the Docker containers in all three projects to launch the databases and RabbitMQ. Open terminal windows inside each directory and execute:
+*   **In `api_gateway` (Starts RabbitMQ):**
     ```bash
-    cd api-gateway
+    docker compose up -d
     ```
-
-2.  Instala las dependencias del proyecto:
+    *   **Port 5672:** AMQP protocol used by code to communicate.
+    *   **Port 15672:** RabbitMQ Management Web Interface (username: `guest` | password: `guest`). Open [http://localhost:15672](http://localhost:15672) to monitor queues.
+*   **In `departments_ms` (Starts Departments MySQL):**
     ```bash
-    npm install
+    docker compose up -d
     ```
-
-3.  Crea y configura tu archivo de entorno a partir de la plantilla o el archivo `.env`:
+    *   **Port 3307:** MySQL connection.
+    *   **Port 8082:** phpMyAdmin interface at [http://localhost:8082](http://localhost:8082).
+*   **In `typescript-exercises` / `employes_ms` (Starts Employees MySQL):**
     ```bash
-    # Verifica que el archivo .env exista en la raíz con las siguientes variables:
+    docker compose up -d
+    ```
+    *   **Port 3306:** MySQL connection.
+    *   **Port 8080:** phpMyAdmin interface at [http://localhost:8080](http://localhost:8080).
+
+#### 3. Setup Environments (`.env`)
+Make sure each directory has its `.env` file configured:
+*   **API Gateway (`api_gateway/.env`):**
+    ```env
     PORT=8081
     EMPLOYEES_SERVICE_URL=http://localhost:3000
     DEPARTMENTS_SERVICE_URL=http://localhost:3001
     ```
+*   **Departments MS (`departments_ms/.env`):**
+    ```env
+    PORT=3001
+    DB_HOST=localhost
+    DB_PORT=3307
+    DB_USER=root
+    DB_PASSWORD=password
+    DB_DATABASE=departments
+    ```
+*   **Employees MS (`employes_ms/.env`):**
+    ```env
+    PORT=3000
+    DB_HOST=localhost
+    DB_PORT=3306
+    DB_USER=root
+    DB_PASSWORD=password
+    DB_DATABASE=employees
+    ```
 
-### Ejecución en Desarrollo
+#### 4. Install Dependencies & Launch Services
+Install npm dependencies and start the development servers:
+*   **Employees MS:**
+    ```bash
+    cd employes_ms
+    npm install
+    npm run dev
+    ```
+*   **Departments MS:**
+    ```bash
+    cd departments_ms
+    npm install
+    npm run dev
+    ```
+*   **API Gateway:**
+    ```bash
+    cd api_gateway
+    npm install
+    npm run dev
+    ```
 
-Para iniciar el servidor en modo de desarrollo con recarga automática:
+#### 5. Verify and Test the Sync
+1.  Open your Postman or API testing tool.
+2.  Send a `POST` request to register a department via the **API Gateway**:
+    *   **URL:** `POST http://localhost:8081/api/departments`
+    *   **Headers:** `Content-Type: application/json`
+    *   **Body:**
+        ```json
+        {
+          "dept_no": "d999",
+          "dept_name": "Antigravity Engineering"
+        }
+        ```
+3.  Check the console logs of **Departments MS**: You will see `📣 Event published to queue [departments_events]`.
+4.  Check the console logs of **Employees MS**: You will see `📩 Event received from queue: DEPARTMENT_CREATED` and `💾 Cache updated in DB: d999 -> Antigravity Engineering`.
+5.  Access phpMyAdmin for the Employees database at `http://localhost:8080` and verify the `departments_cache` table contains the new department!
+
+---
+
+## ⚙️ Configuration (.env)
+
+| Variable | Type | Description | Default Value |
+| :--- | :--- | :--- | :--- |
+| `PORT` | Number | Port on which the API Gateway listens. | `8080` (if unconfigured) |
+| `EMPLOYEES_SERVICE_URL` | URL | Base URL of the Employees Microservice. | `http://localhost:3000` |
+| `DEPARTMENTS_SERVICE_URL` | URL | Base URL of the Departments Microservice. | `http://localhost:3001` |
+
+---
+
+## 📡 Endpoints Exposed
+
+| Path | Method | Target Service URL | Description |
+| :--- | :--- | :--- | :--- |
+| `/api/employees/*` | `ANY` | `EMPLOYEES_SERVICE_URL` | Forwards all requests to Employees Microservice |
+| `/api/departments/*` | `ANY` | `DEPARTMENTS_SERVICE_URL` | Forwards all requests to Departments Microservice |
+
+---
+
+## 📂 Directory Structure
 
 ```bash
-npm run dev
-```
-
-El servidor iniciará en http://localhost:8081 (o el puerto configurado en el archivo `.env`).
-
----
-
-## ⚙️ Configuración (.env)
-
-| Variable | Tipo | Descripción | Valor por Defecto |
-| :--- | :--- | :--- | :--- |
-| `PORT` | Número | Puerto en el que escuchará el API Gateway. | `8080` (si no se especifica) |
-| `EMPLOYEES_SERVICE_URL` | URL | URL base del microservicio de Empleados. | `http://localhost:3000` |
-| `DEPARTMENTS_SERVICE_URL` | URL | URL base del microservicio de Departamentos. | `http://localhost:3001` |
-
----
-
-## 📡 Endpoints Disponibles
-
-| Ruta | Método | Destino | Descripción |
-| :--- | :--- | :--- | :--- |
-| `/gateway-health` | `GET` | N/A (Interno) | Comprueba si el Gateway está activo. |
-| `/api/employees/*` | `ANY` | `EMPLOYEES_SERVICE_URL` | Redirige peticiones al microservicio de Empleados. |
-| `/api/departments/*` | `ANY` | `DEPARTMENTS_SERVICE_URL` | Redirige peticiones al microservicio de Departamentos. |
-
----
-
-## 📂 Estructura del Directorio
-
-```bash
-api-gateway/
+api_gateway/
 ├── src/
-│   └── index.ts          # Punto de entrada principal y configuración de proxies
-├── .env                  # Variables de entorno locales
-├── package.json          # Script de desarrollo y dependencias
-├── tsconfig.json         # Configuración de TypeScript
-└── README.md             # Documentación del proyecto
+│   └── index.ts          # Express Gateway setup and proxies
+├── .env                  # Port and backend URL configurations
+├── docker-compose.yml    # Runs local RabbitMQ broker
+├── package.json          # Dependencies and scripts
+├── tsconfig.json         # TS configurations
+└── README.md             # This documentation
 ```
 
 ---
 
 > [!IMPORTANT]
-> **Nota sobre el Parseo del Body:**
-> Para asegurar el correcto funcionamiento del proxy, este Gateway **no** utiliza `app.use(express.json())` globalmente. El procesamiento del payload JSON debe realizarse directamente en cada uno de los microservicios de destino (`employes_ms` y `departments_ms`) para evitar la corrupción de peticiones de tipo `POST` y `PUT`.
+> **Body Parser Warning:**
+> For proxy forwarding to work correctly, this gateway **must not** apply `express.json()` globally. Parsing incoming requests at this stage consumes the stream, which blocks proxy modules from forwarding payload bodies on `POST` and `PUT` requests.
 
 ---
 
-## 📄 Licencia
+## 📄 License
 
-Este proyecto está bajo la licencia ISC.
+This project is licensed under the ISC License.
